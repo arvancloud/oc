@@ -1109,6 +1109,16 @@ func (c *AppConfig) enforceLimitsAndRequests(objects app.Objects) (app.Objects, 
 			if len(name) == 0 {
 				name = dc.ObjectMeta.Name
 			}
+			dc.Spec.Strategy.Resources.Limits = corev1.ResourceList{
+				resourceCPUName:              deploymentResourceCPU,
+				resourceRAMName:              deploymentResourceRAM,
+				resourceEphemeralStorageName: deploymentResourceEphemeralStorage,
+			}
+			dc.Spec.Strategy.Resources.Requests = corev1.ResourceList{
+				resourceCPUName:              deploymentResourceCPU,
+				resourceRAMName:              deploymentResourceRAM,
+				resourceEphemeralStorageName: deploymentResourceEphemeralStorage,
+			}
 			dc.Spec.Template.Spec.Containers[0].Resources.Limits = corev1.ResourceList{
 				resourceCPUName:              deploymentResourceCPU,
 				resourceRAMName:              deploymentResourceRAM,
