@@ -134,9 +134,22 @@ To list all local templates and image streams, use:
 To search templates, image streams, and Docker images that match the arguments provided, use:
 
   arvan paas new-app -S php
-  arvan paas new-app -S --template=ruby
-  arvan paas new-app -S --image-stream=mysql
-  arvan paas new-app -S --docker-image=python
+  arvan paas new-app -S --template=ruby --cpu=2 --ram=2G --temp-storage=3G
+  arvan paas new-app -S --image-stream=mysql --cpu=4 --ram=3.5G --temp-storage=5G 
+  arvan paas new-app -S --docker-image=python --cpu=1.5 --ram=1G --temp-storage=2.4G
+`
+	newAppResourceLimitsRequired = `You must specify deployment resources to create an application.
+
+To create an application from a local source, use:
+
+  arvan paas --cpu=2 --ram=1.8G --temp-storage=3G my-nodejs-app
+
+To use persistant volume in your application, use:
+
+  arvan paas --cpu=2 --ram=1.8G --temp-storage=3G --pv-size=1G --pv-mount-path=/mnt/data my-php-app
+
+To specify resources for building your application, use:
+  arvan paas --cpu=2 --ram=1.8G --temp-storage=3G --build-cpu=4 --build-ram=4G my-go-app
 `
 )
 
@@ -291,6 +304,14 @@ func NewCmdNewApplication(f kcmdutil.Factory, streams genericclioptions.IOStream
 	cmd.Flags().StringVar(&o.Config.SourceSecret, "source-secret", o.Config.SourceSecret, "The name of an existing secret that should be used for cloning a private git repository.")
 	cmd.Flags().BoolVar(&o.Config.SkipGeneration, "no-install", o.Config.SkipGeneration, "Do not attempt to run images that describe themselves as being installable")
 	cmd.Flags().BoolVar(&o.Config.BinaryBuild, "binary", o.Config.BinaryBuild, "Instead of expecting a source URL, set the build to expect binary contents. Will disable triggers.")
+	cmd.Flags().Float32Var(&o.Config.CPU, "cpu", o.Config.CPU, "Requested vCPU cores. Can be fraction of a core.")
+	cmd.Flags().StringVar(&o.Config.RAM, "ram", o.Config.RAM, "Requested memory for application.")
+	cmd.Flags().StringVar(&o.Config.EphemeralStorage, "temp-storage", o.Config.EphemeralStorage, "Requested ephemeral (temporary) storage.")
+	cmd.Flags().StringVar(&o.Config.PersistentVolumeSize, "pv-size", o.Config.PersistentVolumeSize, "Requested Persistant Volume Storage in Gigabytes.")
+	cmd.Flags().StringVar(&o.Config.PersistentVolumeMountPath, "pv-mount-path", o.Config.PersistentVolumeMountPath, "A path to an unused directory to mount the persistent volume")
+	cmd.Flags().Float32Var(&o.Config.BuildCPU, "build-cpu", o.Config.BuildCPU, "Requested vCPU cores for building the app. Can be fraction of a core.")
+	cmd.Flags().StringVar(&o.Config.BuildRAM, "build-ram", o.Config.BuildRAM, "Requested RAM for building the app.")
+	cmd.Flags().StringVar(&o.Config.BuildEphemeralStorage, "build-storage", o.Config.BuildEphemeralStorage, "Requested ephemeral storage to build the application.")
 
 	o.Action.BindForOutput(cmd.Flags(), "output", "template")
 	cmd.Flags().String("output-version", "", "The preferred API versions of the output objects")
@@ -1061,6 +1082,8 @@ func TransformRunError(err error, commandPath string, groups ErrorGroups, config
 	case newcmd.ErrNoInputs:
 		// TODO: suggest things to the user
 		groups.Add("", "", "", UsageError(commandPath, newAppNoInput))
+	case newcmd.ErrResourceLimitsRequired:
+		groups.Add("", "", "", UsageError(commandPath, newAppResourceLimitsRequired))
 	default:
 		if runtime.IsNotRegisteredError(err) {
 			groups.Add("", "", "", fmt.Errorf(fmt.Sprintf("The template contained an object type unknown to `arvan paas new-app`.  Use `arvan paas process -f <template> | arvan paas create -f -` instead.  Error details: %v", err)))

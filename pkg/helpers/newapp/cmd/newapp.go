@@ -14,19 +14,6 @@ import (
 	v1 "k8s.io/api/apps/v1"
 	"k8s.io/klog/v2"
 
-	corev1 "k8s.io/api/core/v1"
-	kerrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
-	apimachineryvalidation "k8s.io/apimachinery/pkg/api/validation"
-	metainternalversion "k8s.io/apimachinery/pkg/apis/meta/internalversion"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	kutilerrors "k8s.io/apimachinery/pkg/util/errors"
-	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/cli-runtime/pkg/resource"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/kubectl/pkg/scheme"
-
 	appsv1 "github.com/openshift/api/apps/v1"
 	authv1 "github.com/openshift/api/authorization/v1"
 	buildv1 "github.com/openshift/api/build/v1"
@@ -47,6 +34,19 @@ import (
 	"github.com/openshift/oc/pkg/helpers/newapp/jenkinsfile"
 	"github.com/openshift/oc/pkg/helpers/newapp/source"
 	"github.com/openshift/oc/pkg/helpers/template/templateprocessorclient"
+	corev1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	kresources "k8s.io/apimachinery/pkg/api/resource"
+	apimachineryvalidation "k8s.io/apimachinery/pkg/api/validation"
+	metainternalversion "k8s.io/apimachinery/pkg/apis/meta/internalversion"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	kutilerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/cli-runtime/pkg/resource"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/kubectl/pkg/scheme"
 )
 
 const (
@@ -98,6 +98,15 @@ type GenerationInputs struct {
 	AsTestDeployment bool
 
 	AllowGenerationErrors bool
+
+	CPU                       float32
+	RAM                       string
+	PersistentVolumeSize      string
+	PersistentVolumeMountPath string
+	EphemeralStorage          string
+	BuildCPU                  float32
+	BuildRAM                  string
+	BuildEphemeralStorage     string
 }
 
 // AppConfig contains all the necessary configuration for an application
@@ -171,6 +180,10 @@ func (e ErrRequiresExplicitAccess) Error() string {
 
 // ErrNoInputs is returned when no inputs are specified
 var ErrNoInputs = errors.New("no inputs provided")
+
+// ErrResourceLimitsRequired is returned when resource limits are not specified
+var ErrResourceLimitsRequired = errors.New("no resource limit provided")
+
 
 // AppResult contains the results of an application
 type AppResult struct {
@@ -1012,6 +1025,12 @@ func (c *AppConfig) Run() (*AppResult, error) {
 		}
 	}
 
+	// Add requests and limits for build and deployments config
+	objects, err = c.enforceLimitsAndRequests(objects)
+	if err != nil {
+		return nil, err
+	}
+
 	return &AppResult{
 		List:      &metainternalversion.List{Items: objects},
 		Name:      name,
@@ -1019,6 +1038,126 @@ func (c *AppConfig) Run() (*AppResult, error) {
 		Namespace: c.OriginNamespace,
 	}, nil
 }
+
+func (c *AppConfig) enforceLimitsAndRequests(objects app.Objects) (app.Objects, error) {
+	name := c.Name
+	const volumeNamePostfix = "-data"
+
+	resourceCPUName := corev1.ResourceCPU
+	resourceRAMName := corev1.ResourceMemory
+	resourceEphemeralStorageName := corev1.ResourceEphemeralStorage
+
+	// check for required resource flags
+	if c.CPU <= 0 || len(c.RAM) == 0 || len(c.EphemeralStorage) == 0 {
+		return nil, ErrResourceLimitsRequired
+	}
+
+	deploymentResourceCPU, err := kresources.ParseQuantity(fmt.Sprintf("%f", c.CPU))
+	if err != nil {
+		return nil, fmt.Errorf("invalid argument \"%f\" for \"--cpu\" flag: %v\n\n- setting a positive CPU limit for application is required\n- use \"--cpu\" with a positive value", c.CPU, err)
+	}
+
+	deploymentResourceRAM, err := kresources.ParseQuantity(c.RAM)
+	if err != nil {
+		return nil, fmt.Errorf("invalid argument \"%s\" for \"--ram\" flag: %v\n\n\"", c.RAM, err)
+	}
+
+	deploymentResourceEphemeralStorage, err := kresources.ParseQuantity(c.EphemeralStorage)
+	if err != nil {
+		return nil, fmt.Errorf("invalid argument \"%s\" for \"--temp-storage\" flag: %v\n\n- setting ephemeral storage limit for application is required", c.EphemeralStorage, err)
+	}
+
+	// If build resources limits are not set, we set it same as deployment limits
+	buildResourceCPU := deploymentResourceCPU
+	buildResourceRAM := deploymentResourceRAM
+	buildResourceEphemeralStorage := deploymentResourceEphemeralStorage
+
+	if c.BuildCPU > 0 {
+		buildResourceCPU, err = kresources.ParseQuantity(fmt.Sprintf("%f", c.BuildCPU))
+		if err != nil {
+			return nil, fmt.Errorf("invalid argument \"%f\" for \"--build-cpu\" flag: %v", c.BuildCPU, err)
+		}
+	}
+	if len(c.BuildRAM) > 0 {
+		buildResourceRAM, err = kresources.ParseQuantity(c.BuildRAM)
+		if err != nil {
+			return nil, fmt.Errorf("invalid argument \"%s\" for \"--build-ram\" flag: %v", c.BuildRAM, err)
+		}
+	}
+	if len(c.BuildEphemeralStorage) > 0 {
+		buildResourceEphemeralStorage, err = kresources.ParseQuantity(c.BuildEphemeralStorage)
+		if err != nil {
+			return nil, fmt.Errorf("invalid argument \"%s\" for \"--build-storage\" flag: %v", c.BuildEphemeralStorage, err)
+		}
+	}
+
+	for _, obj := range objects {
+		if bc, ok := obj.(*buildv1.BuildConfig); ok {
+			bc.Spec.Resources.Limits = corev1.ResourceList{
+				resourceCPUName:              buildResourceCPU,
+				resourceRAMName:              buildResourceRAM,
+				resourceEphemeralStorageName: buildResourceEphemeralStorage,
+			}
+			bc.Spec.Resources.Requests = corev1.ResourceList{
+				resourceCPUName:              buildResourceCPU,
+				resourceRAMName:              buildResourceRAM,
+				resourceEphemeralStorageName: buildResourceEphemeralStorage,
+			}
+		}
+		if dc, ok := obj.(*appsv1.DeploymentConfig); ok {
+			// Set name if nil
+			if len(name) == 0 {
+				name = dc.ObjectMeta.Name
+			}
+			dc.Spec.Template.Spec.Containers[0].Resources.Limits = corev1.ResourceList{
+				resourceCPUName:              deploymentResourceCPU,
+				resourceRAMName:              deploymentResourceRAM,
+				resourceEphemeralStorageName: deploymentResourceEphemeralStorage,
+			}
+			dc.Spec.Template.Spec.Containers[0].Resources.Requests = corev1.ResourceList{
+				resourceCPUName:              deploymentResourceCPU,
+				resourceRAMName:              deploymentResourceRAM,
+				resourceEphemeralStorageName: deploymentResourceEphemeralStorage,
+			}
+			if len(c.PersistentVolumeSize) > 0 {
+				dc.Spec.Template.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{
+					{
+						Name:      name + volumeNamePostfix,
+						ReadOnly:  false,
+						MountPath: c.PersistentVolumeMountPath,
+					},
+				}
+				dc.Spec.Template.Spec.Volumes = []corev1.Volume{
+					{
+						Name:         name + volumeNamePostfix,
+						VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: name}},
+					},
+				}
+			}
+		}
+
+	}
+	if len(c.PersistentVolumeSize) > 0 {
+		persistentVolumeSizeQuantity, err := kresources.ParseQuantity(c.PersistentVolumeSize)
+		if err != nil {
+			return nil, fmt.Errorf("invalid argument \"%s\" for \"--pv-size\" flag: %v", c.PersistentVolumeSize, err)
+		}
+		if len(c.PersistentVolumeMountPath) == 0 {
+			return nil, fmt.Errorf("you need to set a mount path for your persistant volume using \"--pv-mount-path\"")
+		}
+		objects = append(objects, &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{Name: name},
+			Spec: corev1.PersistentVolumeClaimSpec{
+				AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceStorage: persistentVolumeSizeQuantity},
+				},
+			},
+		})
+	}
+	return objects, nil
+}
+
 
 func (c *AppConfig) findImageStreamInObjectList(objects app.Objects, name, namespace string) *imagev1.ImageStream {
 	for _, check := range objects {
