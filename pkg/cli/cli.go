@@ -226,6 +226,15 @@ func NewOcCommand(in io.Reader, out, errout io.Writer) *cobra.Command {
 				kubectlwrappers.NewCmdKustomize(ioStreams),
 			},
 		},
+		{
+			Message: "Settings Commands:",
+			Commands: []*cobra.Command{
+				//logout.NewCmdLogout(f, ioStreams),
+				//kubectlwrappers.NewCmdConfig(f, ioStreams),
+				//whoami.NewCmdWhoAmI(f, ioStreams),
+				kubectlwrappers.NewCmdCompletion(ioStreams),
+			},
+		},
 	}
 	groups.Add(cmds)
 
@@ -248,7 +257,7 @@ func NewOcCommand(in io.Reader, out, errout io.Writer) *cobra.Command {
 		}
 		cmds.Flag("namespace").Annotations[cobra.BashCompCustom] = append(
 			cmds.Flag("namespace").Annotations[cobra.BashCompCustom],
-			"__oc_get_namespaces",
+			"__arvan_paas_get_namespaces",
 		)
 	}
 

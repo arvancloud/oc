@@ -647,7 +647,7 @@ func streamPathToBuild(repo git.Repository, in io.Reader, out io.Writer, client 
 				}
 
 				// Create a temp directory to move the repo contents to
-				tempDirectory, err := ioutil.TempDir(os.TempDir(), "oc_cloning_"+options.Commit)
+				tempDirectory, err := ioutil.TempDir(os.TempDir(), "arvan_paas_cloning_"+options.Commit)
 				if err != nil {
 					return nil, err
 				}

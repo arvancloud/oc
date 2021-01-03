@@ -1,18 +1,18 @@
 package cli
 
 const (
-	bashCompletionFunc = `# call oc get $1,
-__oc_override_flag_list=(config cluster user context namespace server)
-__oc_override_flags()
+	bashCompletionFunc = `# call arvan paas get $1,
+__arvan_paas_override_flag_list=(config cluster user context namespace server)
+__arvan_paas_override_flags()
 {
-    local ${__oc_override_flag_list[*]} two_word_of of
+    local ${__arvan_paas_override_flag_list[*]} two_word_of of
     for w in "${words[@]}"; do
         if [ -n "${two_word_of}" ]; then
             eval "${two_word_of}=\"--${two_word_of}=\${w}\""
             two_word_of=
             continue
         fi
-        for of in "${__oc_override_flag_list[@]}"; do
+        for of in "${__arvan_paas_override_flag_list[@]}"; do
             case "${w}" in
                 --${of}=*)
                     eval "${of}=\"${w}\""
@@ -23,71 +23,71 @@ __oc_override_flags()
             esac
         done
     done
-    for of in "${__oc_override_flag_list[@]}"; do
+    for of in "${__arvan_paas_override_flag_list[@]}"; do
         if eval "test -n \"\$${of}\""; then
             eval "echo \${${of}}"
         fi
     done
 }
-__oc_parse_get()
+__arvan_paas_parse_get()
 {
 
     local template
     template="{{ range .items  }}{{ .metadata.name }} {{ end }}"
-    local oc_out
-    if oc_out=$(oc get $(__oc_override_flags) -o template --template="${template}" "$1" 2>/dev/null); then
-        COMPREPLY=( $( compgen -W "${oc_out[*]}" -- "$cur" ) )
+    local arvan_paas_out
+    if arvan_paas_out=$(arvan paas get $(__arvan_paas_override_flags) -o template --template="${template}" "$1" 2>/dev/null); then
+        COMPREPLY=( $( compgen -W "${arvan_paas_out[*]}" -- "$cur" ) )
     fi
 }
 
-__oc_get_namespaces()
+__arvan_paas_get_namespaces()
 {
-    local template oc_out
+    local template arvan_paas_out
     template="{{ range .items  }}{{ .metadata.name }} {{ end }}"
-    if oc_out=$(oc get -o template --template="${template}" namespace 2>/dev/null); then
-        COMPREPLY=( $( compgen -W "${oc_out[*]}" -- "$cur" ) )
+    if arvan_paas_out=$(arvan paas get -o template --template="${template}" namespace 2>/dev/null); then
+        COMPREPLY=( $( compgen -W "${arvan_paas_out[*]}" -- "$cur" ) )
     fi
 }
 
-__oc_get_resource()
+__arvan_paas_get_resource()
 {
     if [[ ${#nouns[@]} -eq 0 ]]; then
-      local oc_out
-      if oc_out=$(oc api-resources $(__oc_override_flags) -o name --cached --request-timeout=5s --verbs=get 2>/dev/null); then
-          COMPREPLY=( $( compgen -W "${oc_out[*]}" -- "$cur" ) )
+      local arvan_paas_out
+      if arvan_paas_out=$(arvan paas api-resources $(__arvan_paas_override_flags) -o name --cached --request-timeout=5s --verbs=get 2>/dev/null); then
+          COMPREPLY=( $( compgen -W "${arvan_paas_out[*]}" -- "$cur" ) )
           return 0
       fi
       return 1
     fi
-    __oc_parse_get "${nouns[${#nouns[@]} -1]}"
+    __arvan_paas_parse_get "${nouns[${#nouns[@]} -1]}"
 }
 
 # $1 is the name of the pod we want to get the list of containers inside
-__oc_get_containers()
+__arvan_paas_get_containers()
 {
     local template
     template="{{ range .spec.containers  }}{{ .name }} {{ end }}"
-    __oc_debug "${FUNCNAME} nouns are ${nouns[@]}"
+    __arvan_paas_debug "${FUNCNAME} nouns are ${nouns[@]}"
 
     local len="${#nouns[@]}"
     if [[ ${len} -ne 1 ]]; then
         return
     fi
     local last=${nouns[${len} -1]}
-    local oc_out
-    if oc_out=$(oc get -o template --template="${template}" pods "${last}" 2>/dev/null); then
-        COMPREPLY=( $( compgen -W "${oc_out[*]}" -- "$cur" ) )
+    local arvan_paas_out
+    if arvan_paas_out=$(arvan paas get -o template --template="${template}" pods "${last}" 2>/dev/null); then
+        COMPREPLY=( $( compgen -W "${arvan_paas_out[*]}" -- "$cur" ) )
     fi
 }
 
 # Require both a pod and a container to be specified
-__oc_require_pod_and_container()
+__arvan_paas_require_pod_and_container()
 {
     if [[ ${#nouns[@]} -eq 0 ]]; then
-        __oc_parse_get pods
+        __arvan_paas_parse_get pods
         return 0
     fi;
-    __oc_get_containers
+    __arvan_paas_get_containers
     return 0
 }
 
@@ -95,53 +95,53 @@ __custom_func() {
     case ${last_command} in
  
         # first arg is the kind according to ValidArgs, second is resource name
-        oc_get | oc_describe | oc_delete | oc_label | oc_expose | oc_export | oc_patch | oc_annotate | oc_edit | oc_scale | oc_autoscale | oc_observe )
-            __oc_get_resource
+        arvan_paas_get | arvan_paas_describe | arvan_paas_delete | arvan_paas_label | arvan_paas_expose | arvan_paas_export | arvan_paas_patch | arvan_paas_annotate | arvan_paas_edit | arvan_paas_scale | arvan_paas_autoscale | arvan_paas_observe )
+            __arvan_paas_get_resource
             return
             ;;
 
         # first arg is a pod name
-        oc_rsh | oc_exec | oc_port-forward | oc_attach)
+        arvan_paas_rsh | arvan_paas_exec | arvan_paas_port-forward | arvan_paas_attach)
             if [[ ${#nouns[@]} -eq 0 ]]; then
-                __oc_parse_get pods
+                __arvan_paas_parse_get pods
             fi;
             return
             ;;
  
         # first arg is a pod name, second is a container name
-        oc_logs)
-            __oc_require_pod_and_container
+        arvan_paas_logs)
+            __arvan_paas_require_pod_and_container
             return
             ;;
  
         # first arg is a build config name
-        oc_start-build | oc_cancel-build)
+        arvan_paas_start-build | arvan_paas_cancel-build)
             if [[ ${#nouns[@]} -eq 0 ]]; then
-                __oc_parse_get buildconfigs
+                __arvan_paas_parse_get buildconfigs
             fi;
             return
             ;;
  
         # first arg is a deployment config OR deployment
-        oc_rollback)
+        arvan_paas_rollback)
             if [[ ${#nouns[@]} -eq 0 ]]; then
-                __oc_parse_get deploymentconfigs,replicationcontrollers
+                __arvan_paas_parse_get deploymentconfigs,replicationcontrollers
             fi;
             return
             ;;
 
         # first arg is a project name
-        oc_project)
+        arvan_paas_project)
             if [[ ${#nouns[@]} -eq 0 ]]; then
-                __oc_parse_get projects
+                __arvan_paas_parse_get projects
             fi;
             return
             ;;
  
         # first arg is an image stream
-        oc_import-image)
+        arvan_paas_import-image)
             if [[ ${#nouns[@]} -eq 0 ]]; then
-                __oc_parse_get imagestreams
+                __arvan_paas_parse_get imagestreams
             fi;
             return
             ;;
